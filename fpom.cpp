@@ -32,7 +32,7 @@ void mosq_message_callback(struct mosquitto *mosq, void *obj, const struct mosqu
   uint8_t* payload = (uint8_t*)message->payload;
   uint8_t command = payload[0];
   
-  printf("got message '%.*s' for topic '%s'\n", message->payloadlen, payload, message->topic);
+  printf("\tMQTT -> message '%.*s' for topic '%s'\n", message->payloadlen, payload, message->topic);
   // message: COMMAND.VALUE
   // e.g.: D.1000 -> sleep for 1000 ms
   // or:   P.3 -> water for 3 sec
@@ -57,12 +57,14 @@ void mosq_message_callback(struct mosquitto *mosq, void *obj, const struct mosqu
   p.command = command;
   p.value = value;
   for (int retryCount = 0; retryCount < 10; retryCount++) {
-    printf("Trying to send data. (%d)\n", retryCount+1);
+    if (retryCount > 0) {
+      printf("Retrying to send data. (%d)\n", retryCount+1);
+    }
     if (!mesh.write(&p, MESSAGE_TYPE, sizeof(struct payload_t), nodeID)) {
       printf("nrf24: could not send mesh data\n");
     }
     else {
-      printf("message relayed to node %d %c %d (size: %d)\n", nodeID, p.command, p.value, sizeof(struct payload_t));
+      printf("\tmessage -> NRF relayed to node %d %c %d (size: %d)\n", nodeID, p.command, p.value, sizeof(struct payload_t));
       break;
     }
   }
@@ -126,7 +128,7 @@ void rf24_mesh() {
     if (header.type == MESSAGE_TYPE) {
       network.read(header,&payload,sizeof(payload)); 
       nodeID = mesh.getNodeID(header.from_node);
-      printf("nrf24: Receivd %c:%d from %d\n", payload.command, payload.value, nodeID);
+      printf("\tNRF24 -> message: Received %c:%d from %d\n", payload.command, payload.value, nodeID);
       char topic_template[] = "/flowers/sensors/%d";
       char topic[sizeof(topic_template)+2];
       sprintf(topic, topic_template, nodeID);
@@ -135,6 +137,9 @@ void rf24_mesh() {
       sprintf(res_str, "%c.%d", payload.command, payload.value);
       if (int publish_result = mosquitto_publish(mosq, 0, topic, sizeof(res_str), &res_str, 0, false) != MOSQ_ERR_SUCCESS) {
         printf("mqtt: could not publish sensor data to mosquitto for node id %d, value %d, error %d\n", nodeID, res, publish_result);
+      }
+      else {
+        printf("\tmessage -> MQTT sent\n");
       }
     }
     else {
