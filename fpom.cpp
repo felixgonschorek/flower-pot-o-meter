@@ -1,0 +1,177 @@
+/* Flower-Pot-O-Meter v2 
+ *
+ * this program is a bridge between an nrf24l01 mesh network and
+ * an mqtt broker.
+ * a node red flow reads the mqtt messages and sends commands back
+ * over mqtt which in turn are relayed to the nrf24l01 mesh
+ */
+
+#include <RF24Mesh/RF24Mesh.h>  
+#include <RF24/RF24.h>
+#include <RF24Network/RF24Network.h>
+#include <stdlib.h> 
+#include <stdint.h>
+#include <mosquitto.h>
+
+// this part is included in the arduino code too, so 
+// both programs on arduino and raspberry "talk the same language"
+/* START: common definitions for arduino and pi */
+const uint8_t ALERT  = 'A'; // note: currently not used
+const uint8_t DREAM  = 'D'; // rPI -> arduino: Sleep for "D.XXXX" milliseconds
+const uint8_t PUMP   = 'P'; // rPI -> arduino: Pump for "P.XX" seconds
+const uint8_t SENSOR = 'S'; // rPI -> arduino: please send sensor data ("S.0")
+                            // arduino -> rPI: sensor result ("S.XXX") 
+                            // (humidity from 0: completely wet to 1023: completely dry)
+const uint8_t PING   = 'K'; // node (raspi) is sending this regularily if alive and not sleeping or pumping or sensing...
+
+const uint8_t MESSAGE_TYPE = 65; // nRF24Mesh message type (65 and up need to be ACKed)
+
+struct payload_t {
+  uint8_t  command;
+  uint32_t value;
+} __attribute__((packed)); // packed attribute needed, else length will be not correct (power of two)
+/* END: common definitions for arduino and pi */
+
+// RF24 config
+RF24 radio(22,0, BCM2835_SPI_SPEED_1MHZ);
+RF24Network network(radio);
+RF24Mesh mesh(radio,network);
+
+// mqtt config
+#define MQTT_HOST "localhost"
+#define MQTT_PORT 1883
+struct mosquitto *mosq;
+
+// callback on mosquitto message
+void mosq_message_callback(struct mosquitto *mosq, void *obj, const struct mosquitto_message *message) {
+  uint8_t* payload = (uint8_t*)message->payload;
+  uint8_t command = payload[0];
+  
+  printf("got message '%.*s' for topic '%s'\n", message->payloadlen, payload, message->topic);
+  // message: COMMAND.VALUE
+  // e.g.: D.1000 -> sleep for 1000 ms
+  // or:   P.3 -> water for 3 sec
+  // TODO: this part has to be reworked, i am bad at C
+  uint32_t value = 0;
+  if (message->payloadlen > 2) {
+    uint8_t value_chars[message->payloadlen-1];
+    //printf("message length: %d", message->payloadlen);
+    for (int i = 2; i < message->payloadlen; i++) {
+      value_chars[i-2] = payload[i];
+      //printf("value char: %c", payload[i]);
+    }
+    value_chars[sizeof(value_chars)/sizeof(uint8_t)-1] = 0;
+    value = strtoul((char*)value_chars, NULL, 10);
+  }
+  char **topics;
+  int topic_count;
+  mosquitto_sub_topic_tokenise(message->topic, &topics, &topic_count);
+  uint8_t nodeID = atoi(topics[topic_count-1]);
+  printf("interpretation: command -> %c, value: %d, nodeID: %d\n", command, value, nodeID);
+  payload_t p;
+  p.command = command;
+  p.value = value;
+  for (int retryCount = 0; retryCount < 10; retryCount++) {
+    printf("Trying to send data. (%d)\n", retryCount+1);
+    if (!mesh.write(&p, MESSAGE_TYPE, sizeof(struct payload_t), nodeID)) {
+      printf("nrf24: could not send mesh data\n");
+    }
+    else {
+      printf("message relayed to node %d %c %d (size: %d)\n", nodeID, p.command, p.value, sizeof(struct payload_t));
+      break;
+    }
+  }
+  
+
+}
+
+uint32_t loop_counter = 0;
+
+void initMesh() {
+  printf("Init mesh...\n");
+
+  // setting the data rate crashes the nrf module (on pi as well as on arduino)
+  // radio.setDataRate(RF24_250KBPS); 
+
+  // Set the nodeID to 0 for the master node
+  mesh.setNodeID(0);
+
+  // start the mesh
+  mesh.begin();
+
+  // print radio details
+  radio.printDetails();
+
+  printf("Mesh initialized\n");
+}
+
+void initMqtt() {
+  printf("Init MQTT...\n");
+  mosquitto_lib_init();
+  mosq = mosquitto_new("raspi-nrf-bridge", true, 0);
+  mosquitto_message_callback_set(mosq, mosq_message_callback);
+  int rc = mosquitto_connect(mosq, MQTT_HOST, MQTT_PORT, 60);
+  if (rc != MOSQ_ERR_SUCCESS) {
+    printf("mqtt: could not connect mqtt, error code %d\n", rc);
+    exit(1);
+  }
+  mosquitto_subscribe(mosq, NULL, "/flowers/commands/+", 0);
+  mosquitto_loop_start(mosq);
+  printf("Init MQTT done!\n");
+}
+
+void rf24_mesh() {
+
+  // Call network.update as usual to keep the network updated
+  mesh.update();
+
+  // In addition, keep the 'DHCP service' running on the master node so addresses will
+  // be assigned to the sensor nodes
+  mesh.DHCP();
+  
+  
+  // Check for incoming data from the sensors
+  while(network.available()) {
+    RF24NetworkHeader header;
+    network.peek(header);
+    
+    uint32_t res=0;
+    uint16_t nodeID = 0;
+    payload_t payload;
+    if (header.type == MESSAGE_TYPE) {
+      network.read(header,&payload,sizeof(payload)); 
+      nodeID = mesh.getNodeID(header.from_node);
+      printf("nrf24: Receivd %c:%d from %d\n", payload.command, payload.value, nodeID);
+      char topic_template[] = "/flowers/sensors/%d";
+      char topic[sizeof(topic_template)+2];
+      sprintf(topic, topic_template, nodeID);
+      ssize_t bufsz = snprintf(NULL, 0, "%c.%d", payload.command, payload.value);
+      char res_str[bufsz];
+      sprintf(res_str, "%c.%d", payload.command, payload.value);
+      if (int publish_result = mosquitto_publish(mosq, 0, topic, sizeof(res_str), &res_str, 0, false) != MOSQ_ERR_SUCCESS) {
+        printf("mqtt: could not publish sensor data to mosquitto for node id %d, value %d, error %d\n", nodeID, res, publish_result);
+      }
+    }
+    else {
+      network.read(header,0,0); 
+      printf("nrf24: Rcv bad type %d from 0%o\n",header.type,header.from_node);     
+    }
+  }
+  if (++loop_counter % 1000 == 0) {
+    printf("loop counter: %d\n", loop_counter);
+  }
+}
+
+int main(int argc, char** argv) {
+  
+  printf("Starting Flower-Pot-O-Meter Bridge v2\n");
+
+  initMesh();
+  initMqtt();
+
+  while(1) {
+    rf24_mesh();
+    delay(2);
+  }
+  return 0;
+}
