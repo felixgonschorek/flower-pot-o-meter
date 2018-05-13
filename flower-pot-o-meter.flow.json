@@ -1,0 +1,322 @@
+[
+    {
+        "id": "84246ea1.a72ca",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "e762b5c8.3cebc8",
+        "type": "inject",
+        "z": "84246ea1.a72ca",
+        "name": "DREAM 8000",
+        "topic": "/flowers/commands/1",
+        "payload": "D.8000",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 970,
+        "y": 580,
+        "wires": [
+            [
+                "5ee1b74.df40b48"
+            ]
+        ]
+    },
+    {
+        "id": "5ee1b74.df40b48",
+        "type": "mqtt out",
+        "z": "84246ea1.a72ca",
+        "name": "publish",
+        "topic": "",
+        "qos": "0",
+        "retain": "false",
+        "broker": "d87aee8c.4db6a",
+        "x": 940,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "79eaaa70.952f04",
+        "type": "inject",
+        "z": "84246ea1.a72ca",
+        "name": "Read Sensor",
+        "topic": "/flowers/commands/1",
+        "payload": "S.0",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 970,
+        "y": 500,
+        "wires": [
+            [
+                "5ee1b74.df40b48"
+            ]
+        ]
+    },
+    {
+        "id": "263fbb03.e6a114",
+        "type": "inject",
+        "z": "84246ea1.a72ca",
+        "name": "Pump.2",
+        "topic": "/flowers/commands/1",
+        "payload": "P.2",
+        "payloadType": "str",
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "x": 950,
+        "y": 540,
+        "wires": [
+            [
+                "5ee1b74.df40b48"
+            ]
+        ]
+    },
+    {
+        "id": "978df8a4.b934a8",
+        "type": "mqtt in",
+        "z": "84246ea1.a72ca",
+        "name": "Mqtt Sensor Input",
+        "topic": "/flowers/sensors/+",
+        "qos": "2",
+        "broker": "d87aee8c.4db6a",
+        "x": 110,
+        "y": 80,
+        "wires": [
+            [
+                "e3160556.425278"
+            ]
+        ]
+    },
+    {
+        "id": "e3160556.425278",
+        "type": "function",
+        "z": "84246ea1.a72ca",
+        "name": "convert buffer to object",
+        "func": "var input = msg.payload.toString()\nmsg.payload = {\n    node: parseInt(msg.topic.substr(msg.topic.lastIndexOf(\"/\")+1)),\n    command: input.substr(0, input.indexOf('.')),\n    value: parseInt(input.substr(input.indexOf('.')+1))\n}\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 340,
+        "y": 80,
+        "wires": [
+            [
+                "f112044f.57b7c8",
+                "9c052d8c.175f3"
+            ]
+        ]
+    },
+    {
+        "id": "41d5ba84.00cd24",
+        "type": "switch",
+        "z": "84246ea1.a72ca",
+        "name": "check for action",
+        "property": "action",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "true"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 1,
+        "x": 700,
+        "y": 400,
+        "wires": [
+            [
+                "5ee1b74.df40b48",
+                "3835eccb.dd5f84"
+            ]
+        ]
+    },
+    {
+        "id": "3eb1ae80.c1eef2",
+        "type": "function",
+        "z": "84246ea1.a72ca",
+        "name": "Handle Sensor Data",
+        "func": "var payload = msg.payload\n\n\nvar humidtyLevelNode1 = 750;\nhumidtyLevelNode1 = 2000;\n\nswitch (msg.payload.node) {\n    case 1:\n        // höher -> trockener\n        if (msg.payload.value > humidtyLevelNode1) {\n        //if (msg.payload.value > humidityLevels) {\n            msg.payload = \"P.5\";\n            msg.topic = \"/flowers/commands/\" + payload.node\n            msg.action = true\n        }\n        else {\n            //msg.payload = \"D.\" + (1000*60*5);\n            msg.payload = \"D.\" + (8000);\n            msg.topic = \"/flowers/commands/\" + payload.node\n            msg.action = true\n        }\n        break;\n    default:\n        console.log(\"Unknown Node: \", msg.payload.node);\n}\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 600,
+        "y": 240,
+        "wires": [
+            [
+                "41d5ba84.00cd24"
+            ]
+        ]
+    },
+    {
+        "id": "b9dc150e.cabb18",
+        "type": "switch",
+        "z": "84246ea1.a72ca",
+        "name": "Switch By Message Type",
+        "property": "payload.command",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "K",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "S",
+                "vt": "str"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 350,
+        "y": 180,
+        "wires": [
+            [
+                "a04c59b4.3d1448"
+            ],
+            [
+                "3eb1ae80.c1eef2",
+                "86e87567.9ebad8"
+            ]
+        ]
+    },
+    {
+        "id": "a04c59b4.3d1448",
+        "type": "function",
+        "z": "84246ea1.a72ca",
+        "name": "Handle Keepalive",
+        "func": "\nmsg.topic = \"/flowers/commands/\" + msg.payload.node\nmsg.payload = \"S.0\"\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 590,
+        "y": 160,
+        "wires": [
+            [
+                "5ee1b74.df40b48",
+                "3835eccb.dd5f84"
+            ]
+        ]
+    },
+    {
+        "id": "f112044f.57b7c8",
+        "type": "debug",
+        "z": "84246ea1.a72ca",
+        "name": "incoming",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "x": 940,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "3835eccb.dd5f84",
+        "type": "debug",
+        "z": "84246ea1.a72ca",
+        "name": "outgoing",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "x": 940,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "9c052d8c.175f3",
+        "type": "delay",
+        "z": "84246ea1.a72ca",
+        "name": "1 sec delay",
+        "pauseType": "delay",
+        "timeout": "1",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "x": 150,
+        "y": 180,
+        "wires": [
+            [
+                "b9dc150e.cabb18"
+            ]
+        ]
+    },
+    {
+        "id": "efc7f9d4.78f398",
+        "type": "http request",
+        "z": "84246ea1.a72ca",
+        "name": "",
+        "method": "POST",
+        "ret": "txt",
+        "url": "http://10.1.0.33:8186/write",
+        "tls": "",
+        "x": 610,
+        "y": 660,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "86e87567.9ebad8",
+        "type": "function",
+        "z": "84246ea1.a72ca",
+        "name": "prepare influx payload",
+        "func": "\nmsg.payload = \"humidity,host=node\" + msg.payload.node + \" value=\" + msg.payload.value\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 450,
+        "y": 400,
+        "wires": [
+            [
+                "efc7f9d4.78f398",
+                "487f27f4.84c838"
+            ]
+        ]
+    },
+    {
+        "id": "487f27f4.84c838",
+        "type": "debug",
+        "z": "84246ea1.a72ca",
+        "name": "http",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "x": 710,
+        "y": 520,
+        "wires": []
+    },
+    {
+        "id": "d87aee8c.4db6a",
+        "type": "mqtt-broker",
+        "z": "",
+        "name": "mqtt localhost",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "usetls": false,
+        "compatmode": true,
+        "keepalive": "60",
+        "cleansession": true,
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": ""
+    }
+]
