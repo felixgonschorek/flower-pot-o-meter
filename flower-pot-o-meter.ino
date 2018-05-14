@@ -10,6 +10,8 @@
 #define PIN_NRF_CE 7
 #define PIN_NRF_CS 8
 
+#define PIN_SENSOR_POWER 4
+
 #define PDOWN // power down with LowPower lib
 //#define READVCC // read vcc voltage
 #define NRF24
@@ -36,7 +38,9 @@ uint32_t humidity = 0;
 
 void setup() {
   pinMode(PIN_PUMP, OUTPUT);
+  pinMode(PIN_SENSOR_POWER, OUTPUT);
   digitalWrite(PIN_PUMP, LOW);
+  digitalWrite(PIN_SENSOR_POWER, LOW);
   Serial.begin(9600);
   mesh.setNodeID(nodeID);
   // Connect to the mesh
@@ -48,6 +52,7 @@ void setup() {
 }
 
 void readHumidity() {
+  digitalWrite(PIN_SENSOR_POWER, HIGH);
   delay(200);
   humidity  = analogRead(0);
   delay(10);
@@ -56,6 +61,7 @@ void readHumidity() {
   humidity += analogRead(0);
   delay(10);
   humidity += analogRead(0);
+  digitalWrite(PIN_SENSOR_POWER, LOW);
   humidity /= 4;
 }
 
@@ -203,7 +209,7 @@ void loop() {
   #ifdef NRF24
   updateMesh();
   readNetwork();
-  if (millis() > last_ping + 5000) {
+  if (millis() > last_ping + 10000) {
     last_ping = millis();
     send(PING, last_ping);
   }
