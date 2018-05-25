@@ -37,17 +37,24 @@ uint32_t displayTimer = 0;
 uint32_t humidity = 0;
 
 void setup() {
+  
   pinMode(PIN_PUMP, OUTPUT);
   pinMode(PIN_SENSOR_POWER, OUTPUT);
   digitalWrite(PIN_PUMP, LOW);
   digitalWrite(PIN_SENSOR_POWER, LOW);
+  
   Serial.begin(9600);
+  
   mesh.setNodeID(nodeID);
   // Connect to the mesh
   #ifdef NRF24
   Serial.println(F("Connecting to the mesh..."));
-  mesh.begin();
-  Serial.println(F("Connected!"));
+  if (mesh.begin()) {
+    Serial.println(F("Connected!"));
+  }
+  else {
+    Serial.println(F("Could not connect to the mesh on setup()"));
+  }
   #endif
 }
 
@@ -106,16 +113,20 @@ void updateMesh() {
   mesh.update();
   if (!mesh.checkConnection()) {
     //refresh the network address
-    Serial.println("Renewing Address");
+    Serial.println("Connection check failed, renewing address");
     long mstart = millis();
     mesh.renewAddress();
     if (millis() - mstart > 10000) {
-      if(radio.failureDetected){ 
-        radio.begin();                       // Attempt to re-configure the radio with defaults
-        radio.failureDetected = 0; 
+      Serial.println("Renew took > 10 secs... failure?");
+      Serial.println("Restarting mesh...");
+      // Attempt to re-configure the radio with defaults
+      if (mesh.begin() == false) {
+        Serial.println("Could not restart mesh :-/");
       }
     }
-    Serial.println("Address renewed!");
+    else {
+      Serial.println("Address renewed!");
+    }
   }
 }
 
@@ -176,7 +187,7 @@ void pump(int seconds) {
   delay(seconds * 1000);
   digitalWrite(PIN_PUMP, LOW);
   delay(5);
-  dream(8000);
+  dream(8000*4);
 }
 
 
