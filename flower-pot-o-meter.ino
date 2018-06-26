@@ -1,3 +1,4 @@
+#include <Battery.h>
 #include <RF24.h>
 #include <RF24Network.h>
 #include "RF24Mesh.h"
@@ -11,9 +12,14 @@
 #define PIN_NRF_CS 8
 
 #define PIN_SENSOR_POWER 4
+#define PIN_BATTERY_AIN A1
+#define PIN_BATTERY_SENSE_SWITCH 2
+
+#define BATTERY_MIN 5000
+#define BATTERY_MAX 8200
+
 
 #define PDOWN // power down with LowPower lib
-//#define READVCC // read vcc voltage
 #define NRF24
 
 
@@ -35,15 +41,19 @@ RF24Mesh mesh(radio, network);
 
 uint32_t displayTimer = 0;
 uint32_t humidity = 0;
+Battery battery(BATTERY_MIN, BATTERY_MAX, A1);
 
-void setup() {
-  
+void setup() {  
   pinMode(PIN_PUMP, OUTPUT);
   pinMode(PIN_SENSOR_POWER, OUTPUT);
+  pinMode(PIN_BATTERY_SENSE_SWITCH, OUTPUT);
+  digitalWrite(PIN_BATTERY_SENSE_SWITCH, LOW);
   digitalWrite(PIN_PUMP, LOW);
   digitalWrite(PIN_SENSOR_POWER, LOW);
   
   Serial.begin(9600);
+  battery.begin(3300, 2.38, &sigmoidal);
+  battery.onDemand(PIN_BATTERY_SENSE_SWITCH, HIGH);
   
   mesh.setNodeID(nodeID);
   // Connect to the mesh
@@ -164,10 +174,6 @@ void readNetwork() {
             Serial.print("UNKNOWN: ");
             Serial.println(payload.command);
         }
-        #ifdef READVCC
-          Serial.print("mV: ");
-          Serial.println(readVcc());
-        #endif
         break;
       default:
         Serial.print("Unknown message type: ");
@@ -216,41 +222,27 @@ void send(uint8_t command, uint32_t value) {
 
 uint32_t last_ping = 0;
 
+void readBattery() {
+  Serial.print("Battery voltage is ");
+  Serial.print(battery.voltage());
+  Serial.print(" (");
+  Serial.print(battery.level(battery.voltage()));
+  Serial.println("%)");
+}
+
 void loop() {
   #ifdef NRF24
   updateMesh();
   readNetwork();
   if (millis() > last_ping + 10000) {
     last_ping = millis();
+    send(BATTERY, battery.voltage());
     send(PING, last_ping);
+    readBattery();
   }
   #endif
+  
 }
 
-#ifdef READVCC
-long readVcc() {
-  // Read 1.1V reference against AVcc
-  // set the reference to Vcc and the measurement to the internal 1.1V reference
-  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-    ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
-    ADMUX = _BV(MUX5) | _BV(MUX0);
-  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
-    ADMUX = _BV(MUX3) | _BV(MUX2);
-  #else
-    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  #endif  
 
-  delay(2); // Wait for Vref to settle
-  ADCSRA |= _BV(ADSC); // Start conversion
-  while (bit_is_set(ADCSRA,ADSC)); // measuring
 
-  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
-  uint8_t high = ADCH; // unlocks both
-
-  long result = (high<<8) | low;
-
-  result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
-  return result; // Vcc in millivolts
-}
-#endif
