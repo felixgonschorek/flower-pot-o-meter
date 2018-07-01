@@ -68,9 +68,26 @@ void mosq_message_callback(struct mosquitto *mosq, void *obj, const struct mosqu
       break;
     }
   }
-  
-
 }
+
+void mosq_connect_callback(struct mosquitto *_mosq, void *obj, int rc) {
+  switch (rc) {
+  case 0: {
+    printf("successfully connected to mosquitto!\n");
+    int retcode = mosquitto_subscribe(mosq, NULL, "/flowers/commands/+", 0);
+    if (retcode == 0) {
+      printf("subscribed to %s\n", "/flowers/commands/+\n");
+      return;
+    }
+    printf("ERROR, could not subscribe to /flowers/commands/+!!\n");
+    break;
+  }
+  default: {
+    printf("error! could not connect to mosquitto, rc: %d\n", rc);
+  }
+  }
+}
+
 
 uint32_t loop_counter = 0;
 
@@ -97,12 +114,12 @@ void initMqtt() {
   mosquitto_lib_init();
   mosq = mosquitto_new("raspi-nrf-bridge", true, 0);
   mosquitto_message_callback_set(mosq, mosq_message_callback);
-  int rc = mosquitto_connect(mosq, MQTT_HOST, MQTT_PORT, 60);
+  mosquitto_connect_callback_set(mosq, mosq_connect_callback);
+  int rc = mosquitto_connect_async(mosq, MQTT_HOST, MQTT_PORT, 60);
   if (rc != MOSQ_ERR_SUCCESS) {
     printf("mqtt: could not connect mqtt, error code %d\n", rc);
     exit(1);
   }
-  mosquitto_subscribe(mosq, NULL, "/flowers/commands/+", 0);
   mosquitto_loop_start(mosq);
   printf("Init MQTT done!\n");
 }
