@@ -234,7 +234,7 @@ void loop() {
   #ifdef NRF24
   updateMesh();
   readNetwork();
-  if (millis() > last_ping + 10000) {
+  if (millis() > last_ping + 60000) {
     last_ping = millis();
     send(BATTERY, battery.voltage());
     send(PING, last_ping);
